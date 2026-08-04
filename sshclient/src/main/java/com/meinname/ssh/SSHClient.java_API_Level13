@@ -1,0 +1,369 @@
+package com.meinname.ssh;
+
+import java.io.*;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.function.Consumer;
+
+import com.jcraft.jsch.*;
+
+public class SSHClient {
+    
+    // Verbindungsparameter
+    private String host;
+    private int port;
+    private String username;
+    private String password;
+    
+    // JSch Objekte
+    private JSch jsch;
+    private Session session;
+    private ChannelShell channel;
+    private ChannelSftp sftp;
+    
+    private boolean isConnected;
+    private BlockingQueue<String> outputQueue;
+    
+    // Konstruktor
+    public SSHClient() {
+        this("localhost", 2222, "test", "alpine");
+    }
+    
+    public SSHClient(String host, int port, String username, String password) {
+        this.host = host;
+        this.port = port;
+        this.username = username;
+        this.password = password;
+        this.jsch = new JSch();
+        this.isConnected = false;
+        this.outputQueue = new LinkedBlockingQueue<>();
+    }
+    
+    // connect() - Baut die SSH-Verbindung auf
+    public boolean connect() {
+        try {
+            // Session erstellen
+            session = jsch.getSession(username, host, port);
+            session.setPassword(password);
+            
+            // HostKey-Überprüfung deaktivieren (wie StrictHostKeyChecking=no)
+            session.setConfig("StrictHostKeyChecking", "no");
+            session.setConfig("PreferredAuthentications", "password");
+            
+            // Timeout setzen (10 Sekunden)
+            session.setTimeout(10000);
+            
+            // Verbinden
+            session.connect();
+            
+            isConnected = true;
+            System.out.println("✅ SSH verbunden: " + username + "@" + host + ":" + port);
+            return true;
+            
+        } catch (JSchException e) {
+            System.out.println("❌ SSH Fehler: " + e.getMessage());
+            close();
+            return false;
+        }
+    }
+    
+    // cmd() - Führt einen Einzelbefehl aus (wie exec_command)
+    public CommandResult cmd(String command) {
+        return cmd(command, 30);
+    }
+    
+    public CommandResult cmd(String command, int timeout) {
+        if (!isConnected) {
+            throw new IllegalStateException("Keine SSH-Verbindung. Rufe zuerst connect() auf.");
+        }
+        
+        try {
+            ChannelExec execChannel = (ChannelExec) session.openChannel("exec");
+            execChannel.setCommand(command);
+            
+            // Streams für Ausgabe
+            ByteArrayOutputStream stdoutStream = new ByteArrayOutputStream();
+            ByteArrayOutputStream stderrStream = new ByteArrayOutputStream();
+            
+            execChannel.setOutputStream(stdoutStream);
+            execChannel.setExtOutputStream(stderrStream);
+            
+            execChannel.connect(timeout);
+            
+            // Warten bis Kanal geschlossen wird
+            while (!execChannel.isClosed()) {
+                Thread.sleep(100);
+            }
+            
+            int exitCode = execChannel.getExitStatus();
+            execChannel.disconnect();
+            
+            return new CommandResult(
+                stdoutStream.toString(StandardCharsets.UTF_8),
+                stderrStream.toString(StandardCharsets.UTF_8),
+                exitCode,
+                exitCode == 0
+            );
+            
+        } catch (Exception e) {
+            return new CommandResult("", e.getMessage(), -1, false);
+        }
+    }
+    
+    // cmd_write() - Sendet Befehl an dauerhafte Shell
+    public String cmdWrite(String command) {
+        return cmdWrite(command, true, 30);
+    }
+    
+    public String cmdWrite(String command, boolean waitForPrompt, int timeout) {
+        if (!isConnected) {
+            throw new IllegalStateException("Keine SSH-Verbindung. Rufe zuerst connect() auf.");
+        }
+        
+        try {
+            if (channel == null || channel.isClosed()) {
+                channel = (ChannelShell) session.openChannel("shell");
+                channel.setPtyType("xterm");
+                channel.connect();
+                Thread.sleep(500);
+                clearBuffer();
+            }
+            
+            // Befehl senden
+            PrintWriter writer = new PrintWriter(channel.getOutputStream());
+            writer.println(command);
+            writer.flush();
+            Thread.sleep(300);
+            
+            // Ausgabe lesen
+            StringBuilder output = new StringBuilder();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(channel.getInputStream()));
+            
+            long startTime = System.currentTimeMillis();
+            while (System.currentTimeMillis() - startTime < timeout * 1000L) {
+                if (reader.ready()) {
+                    String line = reader.readLine();
+                    if (line != null) {
+                        output.append(line).append("\n");
+                    }
+                } else if (output.length() > 0) {
+                    break;
+                }
+                Thread.sleep(100);
+            }
+            
+            return cleanOutput(output.toString(), command);
+            
+        } catch (Exception e) {
+            return "Fehler: " + e.getMessage();
+        }
+    }
+    
+    private void clearBuffer() {
+        try {
+            if (channel != null && channel.getInputStream().available() > 0) {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(channel.getInputStream()));
+                while (reader.ready()) {
+                    reader.read();
+                }
+            }
+        } catch (IOException e) {
+            // Ignorieren
+        }
+    }
+    
+    private String cleanOutput(String output, String command) {
+        String[] lines = output.split("\n");
+        StringBuilder cleaned = new StringBuilder();
+        boolean skipCmd = true;
+        
+        for (String line : lines) {
+            if (skipCmd && line.contains(command)) {
+                skipCmd = false;
+                continue;
+            }
+            if (!skipCmd) {
+                cleaned.append(line).append("\n");
+            }
+        }
+        
+        return cleaned.toString().trim();
+    }
+    
+    // cmd_interactive() - Für interaktive Befehle (sudo, passwd)
+    public String cmdInteractive(String command, Map<String, String> responses) {
+        return cmdInteractive(command, responses, 15);
+    }
+    
+    public String cmdInteractive(String command, Map<String, String> responses, int timeout) {
+        if (!isConnected) {
+            throw new IllegalStateException("Keine SSH-Verbindung.");
+        }
+        
+        try {
+            if (channel == null || channel.isClosed()) {
+                channel = (ChannelShell) session.openChannel("shell");
+                channel.setPtyType("xterm");
+                channel.connect();
+                Thread.sleep(500);
+                clearBuffer();
+            }
+            
+            // Befehl senden
+            PrintWriter writer = new PrintWriter(channel.getOutputStream());
+            writer.println(command);
+            writer.flush();
+            
+            // Ausgabe lesen und auf Prompts reagieren
+            StringBuilder output = new StringBuilder();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(channel.getInputStream()));
+            
+            Map<String, String> remainingResponses = new HashMap<>(responses);
+            long startTime = System.currentTimeMillis();
+            
+            while (System.currentTimeMillis() - startTime < timeout * 1000L) {
+                if (reader.ready()) {
+                    String line = reader.readLine();
+                    if (line != null) {
+                        output.append(line).append("\n");
+                        
+                        // Nach Prompts suchen
+                        for (Map.Entry<String, String> entry : new HashMap<>(remainingResponses).entrySet()) {
+                            if (line.toLowerCase().contains(entry.getKey().toLowerCase())) {
+                                writer.println(entry.getValue());
+                                writer.flush();
+                                remainingResponses.remove(entry.getKey());
+                                break;
+                            }
+                        }
+                    }
+                }
+                Thread.sleep(100);
+            }
+            
+            return output.toString();
+            
+        } catch (Exception e) {
+            return "Fehler: " + e.getMessage();
+        }
+    }
+    
+    // cmd_async() - Asynchroner Befehl
+    public Thread cmdAsync(String command, Consumer<CommandResult> callback) {
+        Thread thread = new Thread(() -> {
+            CommandResult result = cmd(command);
+            if (callback != null) {
+                callback.accept(result);
+            }
+        });
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
+    }
+    
+    // upload_file() - SFTP Upload
+    public boolean uploadFile(String localPath, String remotePath) {
+        try {
+            if (sftp == null || !sftp.isConnected()) {
+                sftp = (ChannelSftp) session.openChannel("sftp");
+                sftp.connect();
+            }
+            
+            try (FileInputStream fis = new FileInputStream(localPath)) {
+                sftp.put(fis, remotePath, ChannelSftp.OVERWRITE);
+            }
+            return true;
+            
+        } catch (Exception e) {
+            System.out.println("Upload Fehler: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    // download_file() - SFTP Download
+    public boolean downloadFile(String remotePath, String localPath) {
+        try {
+            if (sftp == null || !sftp.isConnected()) {
+                sftp = (ChannelSftp) session.openChannel("sftp");
+                sftp.connect();
+            }
+            
+            try (FileOutputStream fos = new FileOutputStream(localPath)) {
+                sftp.get(remotePath, fos);
+            }
+            return true;
+            
+        } catch (Exception e) {
+            System.out.println("Download Fehler: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    // cmd_python() - Python-Code ausführen
+    public CommandResult cmdPython(String pythonCode) {
+        return cmd("python3 -c \"" + pythonCode + "\"");
+    }
+    
+    // close() - Verbindung schließen
+    public void close() {
+        try {
+            if (sftp != null && sftp.isConnected()) {
+                sftp.disconnect();
+                sftp = null;
+            }
+            if (channel != null && channel.isConnected()) {
+                channel.disconnect();
+                channel = null;
+            }
+            if (session != null && session.isConnected()) {
+                session.disconnect();
+                session = null;
+            }
+        } catch (Exception e) {
+            // Ignorieren
+        }
+        isConnected = false;
+        System.out.println("🔌 SSH-Verbindung geschlossen");
+    }
+    
+    // Für try-with-resources (AutoCloseable)
+    public void autoClose() {
+        close();
+    }
+    
+    // Getter
+    public boolean isConnected() {
+        return isConnected;
+    }
+    
+    // ============================================================
+    // HILFSKLASSEN
+    // ============================================================
+    
+    // CommandResult (wie Python-Dict)
+    public static class CommandResult {
+        private final String stdout;
+        private final String stderr;
+        private final int exitCode;
+        private final boolean success;
+        
+        public CommandResult(String stdout, String stderr, int exitCode, boolean success) {
+            this.stdout = stdout;
+            this.stderr = stderr;
+            this.exitCode = exitCode;
+            this.success = success;
+        }
+        
+        public String getStdout() { return stdout; }
+        public String getStderr() { return stderr; }
+        public int getExitCode() { return exitCode; }
+        public boolean isSuccess() { return success; }
+        
+        @Override
+        public String toString() {
+            return "CommandResult{stdout='" + stdout + "', stderr='" + stderr + "', exitCode=" + exitCode + ", success=" + success + "}";
+        }
+    }
+}

@@ -1,0 +1,45 @@
+package org.gateway.android;
+
+import py4j.GatewayServer;
+import android.util.Log;
+
+
+public class Py4JGateway {
+    
+    private static final String TAG = "Py4JGateway";
+    // Diese Methode wird später von Python aufgerufen
+    public String holeAndroidStatus() {
+        return "Grüße aus dem Android-Java-Code via Gateway-Modul!";
+    }
+    
+    /**
+     * ★ ★ ★ HIER NEU EINFÜGEN ★ ★ ★
+     * Empfängt Text von Python und gibt eine formatierte Rückmeldung zurück.
+     */
+    public String verarbeiteText(String eingabe) {
+        Log.d(TAG, "Text von Python empfangen: " + eingabe);
+        if (eingabe == null || eingabe.trim().isEmpty()) {
+            return "⚠️ Java hat einen leeren Text erhalten!";
+        }
+        return "✅ Java meldet: Text erfolgreich verarbeitet (Länge: " + eingabe.length() + " Zeichen).";
+    }
+    
+
+    // Der Server wird über diese statische Methode gestartet
+    public static void startServer() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Py4JGateway gatewayInstance = new Py4JGateway();
+                    // Server auf Port 25333 mit unserer Instanz starten
+                    GatewayServer server = new GatewayServer(gatewayInstance, 25333);
+                    server.start();
+                    android.util.Log.d("Py4J", "Gateway Server erfolgreich auf Port 25333 gestartet!");
+                } catch (Exception e) {
+                    android.util.Log.e("Py4J", "Fehler beim Starten des Gateway Servers", e);
+                }
+            }
+        }).start();
+    }
+}

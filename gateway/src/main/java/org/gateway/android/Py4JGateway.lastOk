@@ -1,0 +1,327 @@
+// Py4JGateway.java - NEUE METHODE checkAllActivities()
+package org.gateway.android;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.util.Log;
+
+import com.meinname.ssh.Globals;
+
+import py4j.GatewayServer;
+
+import java.lang.ref.WeakReference;
+import java.lang.reflect.Method;
+
+public class Py4JGateway {
+
+    private static final String TAG = "Py4JGateway";
+    
+    // ★ ★ ★ GATEWAY STATUS ★ ★ ★
+    private static boolean isGatewayRunning = false;
+    private static boolean isGatewayInitialized = false;
+    private static long gatewayStartTime = 0;
+    
+    // ★ ★ ★ ACTIVITY-REFERENZ ★ ★ ★
+    private static WeakReference<Activity> mActivityRef = null;
+    private static String currentActivityName = "None";
+
+    // ─── ALLE ACTIVITY-CLASS NAMEN ★ ★ ★
+    private static final String[] ACTIVITY_CLASSES = {
+        "org.kivy.android.PythonActivity",
+        "org.kivy.android.PythonQActivity",
+        "com.meinname.loginapp3.MyCustomActivity",
+        "com.rk.terminal.ui.activities.terminal.MainActivity"
+    };
+    
+    private static final String[] ACTIVITY_NAMES = {
+        "1. PythonActivity (SDL2/Kivy)",
+        "2. PythonQActivity (Qt/PySide6)",
+        "3. MyCustomActivity (Login/Start)",
+        "4. ReTerminal (Shell)"
+    };
+
+    // ─── ★ ★ ★ NEU: ALLE 4 ACTIVITIES PRÜFEN ★ ★ ★ ──────────
+    public String checkAllActivities() {
+        Globals.showLog(TAG, "🔍 checkAllActivities() aufgerufen");
+        
+        StringBuilder result = new StringBuilder();
+        result.append("📊 ACTIVITY-STATUS:\n");
+        result.append("========================================\n");
+        
+        // 1. Gateway-Status
+        result.append("🔌 Gateway: ");
+        if (isGatewayRunning) {
+            result.append("✅ LÄUFT (Port " + Globals.GATEWAY_PORT + ")\n");
+        } else {
+            result.append("❌ NICHT GESTARTET!\n");
+        }
+        
+        // 2. Gespeicherte Activity
+        result.append("\n📌 Gespeicherte Activity: ");
+        if (mActivityRef != null) {
+            Activity act = mActivityRef.get();
+            if (act != null && !act.isFinishing() && !act.isDestroyed()) {
+                result.append("✅ " + act.getClass().getSimpleName() + " (gültig)\n");
+            } else {
+                result.append("⚠️ " + currentActivityName + " (ungültig oder zerstört)\n");
+            }
+        } else {
+            result.append("❌ KEINE\n");
+        }
+        
+        // 3. Alle 4 Activities prüfen
+        result.append("\n📋 Alle 4 Activities:\n");
+        result.append("----------------------------------------\n");
+        
+        int foundCount = 0;
+        int validCount = 0;
+        
+        for (int i = 0; i < ACTIVITY_CLASSES.length; i++) {
+            String className = ACTIVITY_CLASSES[i];
+            String displayName = ACTIVITY_NAMES[i];
+            
+            result.append(displayName + ": ");
+            
+            try {
+                Class<?> clazz = Class.forName(className);
+                foundCount++;
+                
+                // Versuche getInstance()
+                try {
+                    Method getInstance = clazz.getMethod("getInstance");
+                    Object instance = getInstance.invoke(null);
+                    
+                    if (instance != null && instance instanceof Activity) {
+                        Activity activity = (Activity) instance;
+                        if (!activity.isFinishing() && !activity.isDestroyed()) {
+                            result.append("✅ AKTIV (gültig)\n");
+                            validCount++;
+                        } else {
+                            result.append("⚠️ INSTANZ EXISTIERT, aber Activity beendet/zerstört\n");
+                        }
+                    } else {
+                        result.append("⚠️ INSTANZ EXISTIERT, aber null oder keine Activity\n");
+                    }
+                } catch (NoSuchMethodException e) {
+                    result.append("⚠️ KEINE getInstance() Methode\n");
+                } catch (Exception e) {
+                    result.append("⚠️ Fehler beim Aufruf: " + e.getMessage() + "\n");
+                }
+                
+            } catch (ClassNotFoundException e) {
+                result.append("❌ KLASSE NICHT GEFUNDEN (nicht geladen)\n");
+            } catch (Exception e) {
+                result.append("❌ Fehler: " + e.getMessage() + "\n");
+            }
+        }
+        
+        // 4. Zusammenfassung
+        result.append("\n========================================\n");
+        result.append("📊 ZUSAMMENFASSUNG:\n");
+        result.append("   Gefundene Klassen: " + foundCount + "/4\n");
+        result.append("   Gültige Activities: " + validCount + "/4\n");
+        
+        if (validCount > 0) {
+            result.append("   ✅ Mindestens eine Activity ist aktiv!\n");
+        } else {
+            result.append("   ❌ KEINE Activity aktiv! Bitte starte eine Activity.\n");
+        }
+        
+        // 5. Gateway-Status
+        result.append("\n🔍 Gateway-Status: " + getGatewayStatus());
+        
+        Globals.showLog(TAG, result.toString());
+        return result.toString();
+    }
+
+    // ─── SELBST-PRÜFUNG ──────────────────────────────────────
+    public static boolean isGatewayActive() {
+        if (!isGatewayRunning) {
+            return false;
+        }
+        if (mActivityRef == null) {
+            return false;
+        }
+        Activity activity = mActivityRef.get();
+        if (activity == null) {
+            return false;
+        }
+        if (activity.isFinishing() || activity.isDestroyed()) {
+            return false;
+        }
+        return true;
+    }
+    
+    // ─── UPTIME ──────────────────────────────────────────────
+    public static long getUptime() {
+        if (gatewayStartTime == 0) return 0;
+        return (System.currentTimeMillis() - gatewayStartTime) / 1000;
+    }
+    
+    // ─── GATEWAY STATUS ──────────────────────────────────────
+    public static String getGatewayStatus() {
+        if (!isGatewayRunning) {
+            return "❌ Gateway NICHT gestartet";
+        }
+        if (mActivityRef == null || mActivityRef.get() == null) {
+            return "⚠️ Gateway läuft, aber KEINE Activity-Referenz!";
+        }
+        Activity activity = mActivityRef.get();
+        if (activity.isFinishing() || activity.isDestroyed()) {
+            return "⚠️ Gateway läuft, aber Activity ist zerstört!";
+        }
+        return "✅ Gateway AKTIV (Activity: " + activity.getClass().getSimpleName() + ", Uptime: " + getUptime() + "s)";
+    }
+
+    // ─── AKTUELLE ACTIVITY HOLEN ──────────────────────────────
+    private static Activity getValidActivity() {
+        if (!isGatewayRunning) {
+            return null;
+        }
+        
+        if (mActivityRef != null) {
+            Activity activity = mActivityRef.get();
+            if (activity != null && !activity.isFinishing() && !activity.isDestroyed()) {
+                return activity;
+            } else {
+                mActivityRef = null;
+            }
+        }
+
+        for (String className : ACTIVITY_CLASSES) {
+            try {
+                Class<?> clazz = Class.forName(className);
+                try {
+                    Method getInstance = clazz.getMethod("getInstance");
+                    Object instance = getInstance.invoke(null);
+                    
+                    if (instance != null && instance instanceof Activity) {
+                        Activity activity = (Activity) instance;
+                        if (!activity.isFinishing() && !activity.isDestroyed()) {
+                            mActivityRef = new WeakReference<>(activity);
+                            currentActivityName = activity.getClass().getSimpleName();
+                            return activity;
+                        }
+                    }
+                } catch (Exception e) {
+                    // Ignorieren
+                }
+            } catch (Exception e) {
+                // Ignorieren
+            }
+        }
+
+        return null;
+    }
+
+    // ─── JAVA-METHODEN (VON PYTHON AUFRUFBAR) ──────────────────
+    public String holeAndroidStatus() {
+        return "✅ " + getGatewayStatus();
+    }
+
+    public String verarbeiteText(String eingabe) {
+        Globals.showLog(TAG, "📩 Text von Python empfangen: " + eingabe);
+        
+        if (eingabe == null || eingabe.trim().isEmpty()) {
+            return "⚠️ Java hat einen leeren Text erhalten!";
+        }
+        
+        return "✅ Java meldet: Text erfolgreich verarbeitet (Länge: " + eingabe.length() + " Zeichen).";
+    }
+
+    public String startPythonActivity() {
+        return startActivity("org.kivy.android.PythonActivity", "main.pyc");
+    }
+
+    public String startPythonQActivity() {
+        return startActivity("org.kivy.android.PythonQActivity", "main2.pyc");
+    }
+    
+    public String startTerminal() {
+        return startActivity("com.rk.terminal.ui.activities.terminal.MainActivity", "");
+    }
+
+    private String startActivity(String className, String entrypoint) {
+        if (!isGatewayRunning) {
+            return "❌ Gateway läuft NICHT! startServer() wurde nicht aufgerufen.";
+        }
+        
+        Activity activity = getValidActivity();
+        
+        if (activity == null) {
+            return "❌ Keine Activity-Referenz! Bitte rufe setActivity() auf.";
+        }
+        
+        try {
+            Class<?> activityClass = Class.forName(className);
+            Intent intent = new Intent(activity, activityClass);
+            
+            if (entrypoint != null && !entrypoint.isEmpty()) {
+                intent.putExtra("ANDROID_ENTRYPOINT", entrypoint);
+                intent.putExtra("PYTHON_ENTRYPOINT", entrypoint);
+                intent.putExtra("entrypoint", entrypoint);
+            }
+            
+            activity.startActivity(intent);
+            
+            return "✅ " + className + " gestartet";
+            
+        } catch (ClassNotFoundException e) {
+            return "❌ Klasse nicht gefunden: " + className;
+        } catch (Exception e) {
+            return "❌ Fehler: " + e.getMessage();
+        }
+    }
+
+    // ─── ACTIVITY-REFERENZ SETZEN ──────────────────────────────
+    public static void setActivity(Activity activity) {
+        if (activity != null) {
+            mActivityRef = new WeakReference<>(activity);
+            currentActivityName = activity.getClass().getSimpleName();
+            Globals.showLog(TAG, "✅ Activity-Referenz GESETZT: " + currentActivityName);
+        }
+    }
+
+    // ─── SERVER STARTEN ──────────────────────────────────────
+    public static void startServer() {
+        Globals.showLog(TAG, "🚀 Gateway-Server wird gestartet...");
+        
+        isGatewayInitialized = true;
+        gatewayStartTime = System.currentTimeMillis();
+        
+        new Thread(() -> {
+            try {
+                Py4JGateway gatewayInstance = new Py4JGateway();
+                GatewayServer server = new GatewayServer(gatewayInstance, Globals.GATEWAY_PORT);
+                server.start();
+                
+                isGatewayRunning = true;
+                
+                Globals.showLog(TAG, "✅ Gateway Server auf Port " + Globals.GATEWAY_PORT + " gestartet!");
+                Log.d(TAG, "✅ Gateway Server auf Port " + Globals.GATEWAY_PORT + " gestartet!");
+                
+            } catch (Exception e) {
+                isGatewayRunning = false;
+                Globals.showLog(TAG, "❌ Fehler beim Starten des Gateway Servers: " + e.getMessage());
+                Log.e(TAG, "❌ Fehler beim Starten des Gateway Servers: " + e.getMessage(), e);
+            }
+        }).start();
+    }
+    
+    
+     // ─── ★ ★ ★ SERVER STOPPEN (NUR BEIM APP-EXIT) ★ ★ ★ ──
+    public static void stopServer() {
+        if (isGatewayRunning) {
+            isGatewayRunning = false;
+            isGatewayInitialized = false;
+            gatewayStartTime = 0;
+            
+            // ★ ★ ★ ACTIVITY-REFERENZ AUCH ZURÜCKSETZEN ★ ★ ★
+            mActivityRef = null;
+            currentActivityName = "None";
+            
+            Globals.showLog(TAG, "🛑 Gateway-Server gestoppt");
+            Log.d(TAG, "🛑 Gateway-Server gestoppt");
+        }
+    }
+}

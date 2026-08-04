@@ -1,0 +1,128 @@
+// Py4JGateway.java
+package org.gateway.android;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.util.Log;
+
+import py4j.GatewayServer;
+
+public class Py4JGateway {
+
+    private static final String TAG = "Py4JGateway";
+    private static Activity mActivity = null;  // ★ ★ ★ Typ auf Activity geändert ★ ★ ★
+
+    // ─── JAVA-METHODE (VON PYTHON AUFRUFBAR) ──────────────────
+    public String holeAndroidStatus() {
+        return "✅ Grüße aus dem Android-Java-Code via Gateway-Modul!";
+    }
+
+    // ─── TEXT VERARBEITEN ──────────────────────────────────────
+    public String verarbeiteText(String eingabe) {
+        Log.d(TAG, "📩 Text von Python empfangen: " + eingabe);
+        if (eingabe == null || eingabe.trim().isEmpty()) {
+            return "⚠️ Java hat einen leeren Text erhalten!";
+        }
+        return "✅ Java meldet: Text erfolgreich verarbeitet (Länge: " + eingabe.length() + " Zeichen).";
+    }
+
+    // ─── ★ ★ ★ ACTIVITY STARTEN (SDL2) ★ ★ ★ ──────────────────
+    public String startPythonActivity() {
+        return startActivity("org.kivy.android.PythonActivity", "main.pyc");
+    }
+
+    // ─── ★ ★ ★ ACTIVITY STARTEN (QT) ★ ★ ★ ──────────────────
+    public String startPythonQActivity() {
+        return startActivity("org.kivy.android.PythonQActivity", "main2.pyc");
+    }
+    
+    public String startTerminal() {
+        Log.d(TAG, "Terminal-Modus gewählt");
+        return startActivity("com.rk.terminal.ui.activities.terminal.MainActivity", "");
+    }
+
+    // ─── GENERISCHE ACTIVITY-START-FUNKTION (MIT PRÜFUNG) ───
+    private String startActivity(String className, String entrypoint) {
+        // ★ ★ ★ 1. PRÜFEN, OB DIE ACTIVITY NOCH GÜLTIG IST ★ ★ ★
+        if (!isActivityValid()) {
+            Log.e(TAG, "❌ Activity-Referenz ist ungültig – kann nicht starten");
+            return "❌ Activity-Referenz ist ungültig! Bitte setze sie neu.";
+        }
+
+        try {
+            Log.d(TAG, "🚀 Starte " + className + " mit Entrypoint: " + entrypoint);
+            
+            // Intent erstellen
+            Class<?> activityClass = Class.forName(className);
+            Intent intent = new Intent(mActivity, activityClass);
+            
+            // Entrypoint als Extra übergeben
+            intent.putExtra("ANDROID_ENTRYPOINT", entrypoint);
+            intent.putExtra("PYTHON_ENTRYPOINT", entrypoint);
+            intent.putExtra("entrypoint", entrypoint);
+            
+            // Activity starten
+            mActivity.startActivity(intent);
+            
+            Log.d(TAG, "✅ " + className + " gestartet");
+            return "✅ " + className + " gestartet mit Entrypoint: " + entrypoint;
+            
+        } catch (ClassNotFoundException e) {
+            Log.e(TAG, "❌ Klasse nicht gefunden: " + className, e);
+            return "❌ Klasse nicht gefunden: " + className;
+        } catch (Exception e) {
+            Log.e(TAG, "❌ Fehler beim Starten von " + className, e);
+            return "❌ Fehler: " + e.getMessage();
+        }
+    }
+
+    // ─── ★ ★ ★ ACTIVITY-GÜLTIGKEIT PRÜFEN ★ ★ ★ ──────────────
+    private static boolean isActivityValid() {
+        if (mActivity == null) {
+            Log.w(TAG, "⚠️ Activity-Referenz ist null!");
+            return false;
+        }
+        
+        // Prüfen, ob die Activity noch aktiv ist
+        if (mActivity.isFinishing() || mActivity.isDestroyed()) {
+            Log.w(TAG, "⚠️ Activity ist beendet oder zerstört!");
+            return false;
+        }
+        
+        return true;
+    }
+
+    // ─── ACTIVITY-REFERENZ SETZEN (MIT PRÜFUNG) ──────────────
+    public static void setActivity(Activity activity) {
+        if (activity != null && !activity.isFinishing() && !activity.isDestroyed()) {
+            mActivity = activity;
+            Log.d(TAG, "✅ Activity-Referenz gesetzt: " + activity.getClass().getName());
+        } else {
+            Log.w(TAG, "⚠️ Versuch, eine ungültige Activity-Referenz zu setzen!");
+            mActivity = null;
+        }
+    }
+
+    // ─── ACTIVITY-REFERENZ ZURÜCKSETZEN ──────────────────────
+    public static void clearActivity() {
+        mActivity = null;
+        Log.d(TAG, "🗑️ Activity-Referenz zurückgesetzt");
+    }
+
+    // ─── SERVER STARTEN ──────────────────────────────────────
+    public static void startServer() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Py4JGateway gatewayInstance = new Py4JGateway();
+                    GatewayServer server = new GatewayServer(gatewayInstance, 25333);
+                    server.start();
+                    Log.d(TAG, "✅ Gateway Server auf Port 25333 gestartet!");
+                } catch (Exception e) {
+                    Log.e(TAG, "❌ Fehler beim Starten des Gateway Servers", e);
+                }
+            }
+        }).start();
+    }
+}
