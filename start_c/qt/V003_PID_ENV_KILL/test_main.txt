@@ -1,0 +1,25 @@
+int main(int argc, char *argv[]) {
+    init_log_file();
+    LOG_TIMESTAMP("🚀 START: main()");
+    LOG("start.c", "🐍 Starting Python initialization");
+    
+    // ... deine vorhandene Initialisierung ...
+    
+    // ★ ★ ★ 1. KOMPLETTER RESET VOR DEM START ★ ★ ★
+    full_reset_before_start();
+    
+    // ... Rest der Initialisierung ...
+    
+    // ★ ★ ★ 2. NACH DEM START: NEUE PID SPEICHERN ★ ★ ★
+    save_python_pid_to_env();
+    
+    // ... Python initialisieren ...
+    
+    // ★ ★ ★ 3. BEI FEHLER: PID LÖSCHEN ★ ★ ★
+    if (Fehler_aufgetreten) {
+        unsetenv("PID_PYTHON");
+        LOGE("❌ Python Start fehlgeschlagen – PID gelöscht");
+    }
+    
+    // ... Rest ...
+}

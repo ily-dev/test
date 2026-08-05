@@ -1,0 +1,100 @@
+// ============================================================
+// ★ PID IN UMWELTVARIABLE SPEICHERN ★
+// ============================================================
+static void save_python_pid_to_env() {
+    pid_t pid = getpid();
+    char pid_str[32];
+    snprintf(pid_str, sizeof(pid_str), "%d", pid);
+    
+    setenv("PID_PYTHON", pid_str, 1);
+    LOGP("📌 Python PID in Umgebungsvariable gespeichert: %s", pid_str);
+}
+
+// ============================================================
+// ★ ALTE PYTHON-PID PRÜFEN UND KILLEN ★
+// ============================================================
+static void check_and_kill_old_python_process() {
+    // 1. PID aus Umgebungsvariable lesen
+    const char *pid_str = getenv("PID_PYTHON");
+    if (pid_str == NULL) {
+        LOGP("ℹ️ Keine gespeicherte PID_PYTHON gefunden (erster Start)");
+        return;
+    }
+    
+    pid_t old_pid = atoi(pid_str);
+    if (old_pid <= 0) {
+        LOGP("⚠️ Ungültige PID_PYTHON: %s", pid_str);
+        return;
+    }
+    
+    LOGP("🔍 Gefundene alte PID_PYTHON: %d", old_pid);
+    
+    // 2. Prüfen ob der Prozess noch läuft
+    if (kill(old_pid, 0) == 0) {
+        LOGP("🔪 Alten Python-Prozess (PID: %d) wird getötet...", old_pid);
+        
+        // 3. Prozess töten
+        kill(old_pid, SIGKILL);
+        usleep(200000); // 200ms warten
+        
+        // 4. Prüfen ob er wirklich weg ist
+        if (kill(old_pid, 0) != 0) {
+            LOGP("✅ Alter Prozess (PID: %d) erfolgreich getötet", old_pid);
+        } else {
+            LOGP("⚠️ Alter Prozess (PID: %d) konnte nicht getötet werden!", old_pid);
+            // Fallback: pkill
+            system("pkill -f libmain.so 2>/dev/null || true");
+            system("pkill -f libmainQt.so 2>/dev/null || true");
+        }
+    } else {
+        LOGP("ℹ️ Alter Prozess (PID: %d) läuft nicht mehr", old_pid);
+    }
+    
+    // 5. PID aus Umgebungsvariable löschen (wird später neu gesetzt)
+    unsetenv("PID_PYTHON");
+}
+
+// ============================================================
+// ★ .bin ORDNER LÖSCHEN ★
+// ============================================================
+static void clean_bin_folder() {
+    const char *unpack_dir = getenv("ANDROID_UNPACK");
+    if (unpack_dir == NULL) {
+        LOGP("⚠️ ANDROID_UNPACK ist NULL, kann .bin nicht löschen");
+        return;
+    }
+    
+    char bin_dir[512];
+    snprintf(bin_dir, sizeof(bin_dir), "%s/.bin", unpack_dir);
+    
+    if (dir_exists(bin_dir)) {
+        char cmd[512];
+        snprintf(cmd, sizeof(cmd), "rm -rf %s", bin_dir);
+        system(cmd);
+        LOGP("🗑️ .bin Ordner gelöscht: %s", bin_dir);
+    } else {
+        LOGP("ℹ️ .bin Ordner existiert nicht: %s", bin_dir);
+    }
+}
+
+// ============================================================
+// ★ KOMPLETTER RESET (VOR DEM START) ★
+// ============================================================
+static void full_reset_before_start() {
+    LOGP("💥 FULL RESET: Bereinige vor dem Start...");
+    
+    // 1. Alten Python-Prozess killen
+    check_and_kill_old_python_process();
+    
+    // 2. .bin Ordner löschen
+    clean_bin_folder();
+    
+    // 3. Python finalisieren (falls noch im Speicher)
+    if (Py_IsInitialized()) {
+        LOGP("⚠️ Python läuft noch – finalisiere...");
+        Py_FinalizeEx();
+        usleep(100000);
+    }
+    
+    LOGP("✅ FULL RESET abgeschlossen");
+}
