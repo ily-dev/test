@@ -382,6 +382,48 @@ static void save_python_pid_to_env() {
     LOGP("📌 Python PID in Umgebungsvariable gespeichert: %s", pid_str);
 }
 
+// ============================================================
+// ★ SICHERER PYTHON FINALIZE ★
+// ============================================================
+static void safe_finalize_python() {
+    LOGP("🔄 safe_finalize_python() aufgerufen...");
+    
+    // 1. Prüfen ob Python initialisiert ist
+    if (!Py_IsInitialized()) {
+        LOGP("ℹ️ Python ist nicht initialisiert – überspringe Finalize");
+        return;
+    }
+    
+    LOGP("⚠️ Python läuft noch – finalisiere...");
+    
+    // 2. Thread-State prüfen
+    PyThreadState *tstate = PyThreadState_Get();
+    if (tstate == NULL) {
+        LOGP("⚠️ Kein Thread-State vorhanden – überspringe Finalize");
+        return;
+    }
+    
+    // 3. Python finalisieren
+    #if PY_MAJOR_VERSION < 3
+        Py_Finalize();
+        LOGP("✅ Py_Finalize() erfolgreich");
+    #else
+        int result = Py_FinalizeEx();
+        if (result != 0) {
+            LOGP("⚠️ Py_FinalizeEx() gab Fehler: %d", result);
+        } else {
+            LOGP("✅ Py_FinalizeEx() erfolgreich");
+        }
+    #endif
+    
+    // 4. Prüfen ob Python wirklich weg ist
+    if (Py_IsInitialized()) {
+        LOGP("⚠️ Python läuft immer noch! HARTEN STOP...");
+        _exit(0);
+    }
+    
+    LOGP("✅ safe_finalize_python() abgeschlossen");
+}
 
 // ============================================================
 // ★ ★ ★ Reset Python ★ ★ ★
@@ -834,6 +876,7 @@ int main(int argc, char *argv[]) {
     LOGP("✅ Python for android ended with code: %d", ret);
     LOG("start.c", "✅ Python for android ended");
 
+/*
 #if PY_MAJOR_VERSION < 3
     Py_Finalize();
     LOGP("Unexpectedly reached Py_FinalizeEx(), but was successful.");
@@ -842,11 +885,16 @@ int main(int argc, char *argv[]) {
         LOGP("Unexpectedly reached Py_FinalizeEx(), and got error!");
     }
 #endif
+*/
 
+    // ★ ★ ★ SICHERER FINALIZE AM ENDE ★ ★ ★
+    safe_finalize_python();
+    
     close_log_file();
     exit(ret);
     return ret;
 }
+
 
 // ============================================================
 // ★ ★ ★ JNI-FUNKTIONEN ★ ★ ★

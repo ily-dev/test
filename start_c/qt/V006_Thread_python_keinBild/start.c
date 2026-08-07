@@ -18,6 +18,8 @@
 #include <time.h>
 #include <stdarg.h>
 #include <string.h>
+//eingebaut fur Thread Python
+#include <pthread.h>
 
 #include "bootstrap_name.h"
 
@@ -41,6 +43,7 @@
 #define LOG_FILE_NAME "/sdcard/libmainQt.log"
 
 static FILE* log_file = NULL;
+
 
 // ============================================================
 // ★ ★ ★ FILE-LOGGING FUNKTIONEN ★ ★ ★
@@ -371,6 +374,36 @@ char *setup_symlinks() {
 }
 
 // ============================================================
+// ★ THREAD-FUNKTION MIT ARGUMENT ★
+// ============================================================
+void* python_thread_function(void* arg) {
+    // ★ ★ ★ ARGUMENT IN char* UMWANDELN ★ ★ ★
+    char *entrypoint = (char*)arg;
+    
+    LOGP("🐍 Python-Thread gestartet (TID: %lu)", pthread_self());
+    
+    // 1. GIL holen
+    PyGILState_STATE gstate = PyGILState_Ensure();
+    
+    // 2. Skript ausführen
+    FILE *fd = fopen(entrypoint, "r");
+    if (fd != NULL) {
+        LOGP("✅ Running Python script: %s", entrypoint);
+        int ret = PyRun_SimpleFile(fd, entrypoint);
+        LOGP("📌 Return PyRun_SimpleFile: %d", ret);
+        fclose(fd);
+    } else {
+        LOGE("❌ Open entrypoint failed: %s", entrypoint);
+    }
+    
+    // 3. GIL freigeben
+    PyGILState_Release(gstate);
+    
+    LOGP("🐍 Python-Thread beendet");
+    return NULL;
+}
+
+// ============================================================
 // ★ PID IN UMWELTVARIABLE SPEICHERN ★
 // ============================================================
 static void save_python_pid_to_env() {
@@ -382,6 +415,86 @@ static void save_python_pid_to_env() {
     LOGP("📌 Python PID in Umgebungsvariable gespeichert: %s", pid_str);
 }
 
+// ============================================================
+// ★ PYTHON PID SPEICHERN (KOMBINIERT) ★
+// ============================================================
+static void save_python_pid_combined() {
+    // 1. Prozess-ID (libmain)
+    pid_t pid = getpid();
+    char pid_str[32];
+    snprintf(pid_str, sizeof(pid_str), "%d", pid);
+    setenv("PID_LIBMAIN", pid_str, 1);
+    LOGP("📌 libmain PID: %d", pid);
+    
+    // 2. Python-Thread-ID (nur wenn Python läuft)
+    if (Py_IsInitialized()) {
+        unsigned long thread_id = PyThread_get_thread_ident();
+        char thread_str[32];
+        snprintf(thread_str, sizeof(thread_str), "%lu", thread_id);
+        setenv("THREAD_PYTHON", thread_str, 1);
+        LOGP("📌 Python Thread ID: %lu", thread_id);
+        
+        // 3. Python-PID über sys (falls verfügbar)
+        PyObject *sys_module = PyImport_ImportModule("sys");
+        if (sys_module) {
+            PyObject *pid_obj = PyObject_GetAttrString(sys_module, "pid");
+            if (pid_obj) {
+                long python_pid = PyLong_AsLong(pid_obj);
+                char python_pid_str[32];
+                snprintf(python_pid_str, sizeof(python_pid_str), "%ld", python_pid);
+                setenv("PID_PYTHON", python_pid_str, 1);
+                LOGP("📌 Python PID (sys): %ld", python_pid);
+                Py_DECREF(pid_obj);
+            }
+            Py_DECREF(sys_module);
+        }
+    } else {
+        LOGP("⚠️ Python läuft nicht – kann Python-PID nicht speichern");
+    }
+}
+
+// ============================================================
+// ★ SICHERER PYTHON FINALIZE ★
+// ============================================================
+static void safe_finalize_python() {
+    LOGP("🔄 safe_finalize_python() aufgerufen...");
+    
+    // 1. Prüfen ob Python initialisiert ist
+    if (!Py_IsInitialized()) {
+        LOGP("ℹ️ Python ist nicht initialisiert – überspringe Finalize");
+        return;
+    }
+    
+    LOGP("⚠️ Python läuft noch – finalisiere...");
+    
+    // 2. Thread-State prüfen
+    PyThreadState *tstate = PyThreadState_Get();
+    if (tstate == NULL) {
+        LOGP("⚠️ Kein Thread-State vorhanden – überspringe Finalize");
+        return;
+    }
+    
+    // 3. Python finalisieren
+    #if PY_MAJOR_VERSION < 3
+        Py_Finalize();
+        LOGP("✅ Py_Finalize() erfolgreich");
+    #else
+        int result = Py_FinalizeEx();
+        if (result != 0) {
+            LOGP("⚠️ Py_FinalizeEx() gab Fehler: %d", result);
+        } else {
+            LOGP("✅ Py_FinalizeEx() erfolgreich");
+        }
+    #endif
+    
+    // 4. Prüfen ob Python wirklich weg ist
+    if (Py_IsInitialized()) {
+        LOGP("⚠️ Python läuft immer noch! HARTEN STOP...");
+        _exit(0);
+    }
+    
+    LOGP("✅ safe_finalize_python() abgeschlossen");
+}
 
 // ============================================================
 // ★ ★ ★ Reset Python ★ ★ ★
@@ -635,6 +748,8 @@ int main(int argc, char *argv[]) {
             
             // ★ ★ ★ 2. NACH DEM START: NEUE PID SPEICHERN ★ ★ ★
             save_python_pid_to_env();
+            
+
     
         }
     #else
@@ -789,8 +904,32 @@ int main(int argc, char *argv[]) {
     LOGP("✅ Running Python script: %s", entrypoint);
     LOG("start.c", "✅ Running Python script");
 
-    ret = PyRun_SimpleFile(fd, entrypoint);
+
+    //rausgenommen uber Thread
+    //ret = PyRun_SimpleFile(fd, entrypoint);
+    
+    
+    // ★ ★ ★ PYTHON-THREAD STARTEN (MIT ARGUMENT) ★ ★ ★
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, python_thread_function, entrypoint) != 0) {
+        LOGE("❌ Thread creation failed");
+        return -1;
+    }
+    LOGP("✅ Python-Thread gestartet");
+    
+    // ★ ★ ★ AUF THREAD WARTEN ★ ★ ★
+    pthread_join(thread, NULL);
+    LOGP("✅ Python-Thread beendet");
+    
+    
+    
+    
+   
+    //LOGP(" Return PyRun_SimpleFile %s", ret);
     fclose(fd);
+    
+    // ★ ★ ★  Python PID speichern
+    save_python_pid_combined();
 
     // ★ ★ ★ FEHLER DETAILS AUSGEBEN ★ ★ ★
     if (PyErr_Occurred() != NULL) {
@@ -834,6 +973,7 @@ int main(int argc, char *argv[]) {
     LOGP("✅ Python for android ended with code: %d", ret);
     LOG("start.c", "✅ Python for android ended");
 
+/*
 #if PY_MAJOR_VERSION < 3
     Py_Finalize();
     LOGP("Unexpectedly reached Py_FinalizeEx(), but was successful.");
@@ -842,11 +982,16 @@ int main(int argc, char *argv[]) {
         LOGP("Unexpectedly reached Py_FinalizeEx(), and got error!");
     }
 #endif
+*/
 
+    // ★ ★ ★ SICHERER FINALIZE AM ENDE ★ ★ ★
+    safe_finalize_python();
+    
     close_log_file();
     exit(ret);
     return ret;
 }
+
 
 // ============================================================
 // ★ ★ ★ JNI-FUNKTIONEN ★ ★ ★

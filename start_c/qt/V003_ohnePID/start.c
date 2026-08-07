@@ -370,41 +370,20 @@ char *setup_symlinks() {
     return interpreter;
 }
 
-// ============================================================
-// ★ PID IN UMWELTVARIABLE SPEICHERN ★
-// ============================================================
-static void save_python_pid_to_env() {
-    pid_t pid = getpid();
-    char pid_str[32];
-    snprintf(pid_str, sizeof(pid_str), "%d", pid);
-    
-    setenv("PID_PYTHON", pid_str, 1);
-    LOGP("📌 Python PID in Umgebungsvariable gespeichert: %s", pid_str);
-}
 
-
-// ============================================================
-// ★ ★ ★ Reset Python ★ ★ ★
-// ============================================================
 static void reset_python() {
     LOGP("🔄 Python wird zurückgesetzt...");
     
     // 1. Prüfen ob Python läuft
     if (Py_IsInitialized()) {
         LOGP("⚠️ Python läuft noch – wird finalisiert...");
-        // Schließt zumindest noch die Log-Datei, falls offen
-        close_log_file();
-        
-        // Zwingt das Betriebssystem, den Prozess sofort zu beenden.
-        // Beim nächsten Start von außen startet alles garantiert frisch.
-        _exit(0); 
         
         // 2. Python finalisieren
-        //Py_Finalize();
-        //LOGP("✅ Python finalisiert");
+        Py_Finalize();
+        LOGP("✅ Python finalisiert");
         
         // 3. Kurz warten (damit alles aufgeräumt wird)
-        //usleep(100000); // 100ms warten
+        usleep(100000); // 100ms warten
     } else {
         LOGP("ℹ️ Python läuft nicht – kein Reset nötig");
     }
@@ -412,9 +391,7 @@ static void reset_python() {
     LOGP("✅ Python bereit für Neustart");
 }
 
-// ============================================================
-// ★ ★ ★ MAIN ★ ★ ★
-// ============================================================
+
 int main(int argc, char *argv[]) {
 
     LOGP("🚀 Python wird (neu) gestartet...");
@@ -632,10 +609,6 @@ int main(int argc, char *argv[]) {
         } else {
             LOGP("✅ Python initialized via Py_InitializeFromConfig()");
             LOG("start.c", "✅ Python initialized via Py_InitializeFromConfig()");
-            
-            // ★ ★ ★ 2. NACH DEM START: NEUE PID SPEICHERN ★ ★ ★
-            save_python_pid_to_env();
-    
         }
     #else
         Py_Initialize();
