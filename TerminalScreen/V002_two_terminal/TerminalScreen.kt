@@ -16,6 +16,7 @@ import android.widget.EditText
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -115,8 +116,6 @@ import java.lang.ref.WeakReference
 import java.util.Properties
 import android.content.Intent
 import com.rk.terminal.ui.screens.terminal.DialogMode
-
-import androidx.compose.foundation.background
 
 // ============================================================
 // ★ VARIABLEN (werden von TerminalLogik verwendet)
@@ -819,10 +818,23 @@ fun TerminalScreen(
                                     factory = { ctx ->
                                         TerminalView(ctx, null).apply {
                                             pythonTerminalView = WeakReference(this)
-                                            // ★ ★ ★ ANDERE EINSTELLUNGEN ★ ★ ★
-                                            setTextSize(dpToPx(12f, ctx))  // Kleinere Schrift
-                                            // Hier könnte ein eigener Session-Client eingebunden werden
-                                            // Für Python-Output kann man später eine separate Session anhängen
+                                            setTextSize(dpToPx(12f, ctx))
+                                            
+                                            // ★ ★ ★ PYTHON SESSION ERSTELLEN ★ ★ ★
+                                            val pythonClient = TerminalBackEnd(this, mainActivityActivity)
+                                            val pythonSession = PythonSession.createPythonSession(
+                                                activity = mainActivityActivity,
+                                                sessionClient = pythonClient,
+                                                session_id = "python_log"
+                                            )
+                                            
+                                            pythonSession.updateTerminalSessionClient(pythonClient)
+                                            attachSession(pythonSession)
+                                            setTerminalViewClient(pythonClient)
+                                            setTypeface(font)
+                                            
+                                            // ★ ★ ★ TESTAUSGABE ★ ★ ★
+                                            pythonSession.write("🐍 Python-Output bereit\n")
                                         }
                                     },
                                     modifier = Modifier
