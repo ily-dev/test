@@ -39,109 +39,48 @@
 // ============================================================
 #define LOG_TAG "start.c"
 #define LOG_FILE_NAME "/sdcard/libmain_sdl2.log"
-#define PYTHON_LOG_FILE "/sdcard/python_sdl2.log"  // ★ ★ ★ NEU: Python-Log ★ ★ ★
 
 static FILE* log_file = NULL;
-static FILE* python_log_file = NULL;  // ★ ★ ★ NEU ★ ★ ★
 
-// ─── INIT FÜR BEIDE LOGS ─────────────────────────────────────
-static void init_log_files() {
-    // 1. Haupt-Log (libmain)
+static void init_log_file() {
+    if (log_file != NULL) return;
+    log_file = fopen(LOG_FILE_NAME, "a");
     if (log_file == NULL) {
-        log_file = fopen(LOG_FILE_NAME, "a");
-        if (log_file == NULL) {
-            log_file = fopen("/data/local/tmp/libmain_sdl2.log", "a");
-        }
-        if (log_file != NULL) {
-            time_t now = time(NULL);
-            char timestamp[64];
-            strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
-            fprintf(log_file, "\n========================================================\n");
-            fprintf(log_file, "🚀 LIBMAIN LOG START: %s\n", timestamp);
-            fprintf(log_file, "========================================================\n");
-            fflush(log_file);
-        }
+        log_file = fopen("/data/local/tmp/libmain_sdl2.log", "a");
     }
-    
-    // 2. Python-Log (nur Python-Output)
-    if (python_log_file == NULL) {
-        python_log_file = fopen(PYTHON_LOG_FILE, "a");
-        if (python_log_file == NULL) {
-            python_log_file = fopen("/data/local/tmp/python_sdl2.log", "a");
-        }
-        if (python_log_file != NULL) {
-            time_t now = time(NULL);
-            char timestamp[64];
-            strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
-            fprintf(python_log_file, "\n========================================================\n");
-            fprintf(python_log_file, "🐍 PYTHON LOG START: %s\n", timestamp);
-            fprintf(python_log_file, "========================================================\n");
-            fflush(python_log_file);
-        }
-    }
-}
-
-// ─── SCHLIESSEN FÜR BEIDE LOGS ───────────────────────────────
-static void close_log_files() {
     if (log_file != NULL) {
         time_t now = time(NULL);
         char timestamp[64];
         strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
         fprintf(log_file, "\n========================================================\n");
-        fprintf(log_file, "🏁 LIBMAIN LOG ENDE: %s\n", timestamp);
+        fprintf(log_file, "🚀 LOG START: %s\n", timestamp);
+        fprintf(log_file, "========================================================\n");
+        fflush(log_file);
+    }
+}
+
+static void close_log_file() {
+    if (log_file != NULL) {
+        time_t now = time(NULL);
+        char timestamp[64];
+        strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
+        fprintf(log_file, "\n========================================================\n");
+        fprintf(log_file, "🏁 LOG ENDE: %s\n", timestamp);
         fprintf(log_file, "========================================================\n");
         fflush(log_file);
         fclose(log_file);
         log_file = NULL;
     }
-    if (python_log_file != NULL) {
-        time_t now = time(NULL);
-        char timestamp[64];
-        strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
-        fprintf(python_log_file, "\n========================================================\n");
-        fprintf(python_log_file, "🏁 PYTHON LOG ENDE: %s\n", timestamp);
-        fprintf(python_log_file, "========================================================\n");
-        fflush(python_log_file);
-        fclose(python_log_file);
-        python_log_file = NULL;
-    }
 }
 
-// ─── LOG IN BEIDE DATEIEN ★ ★ ★
 static void log_to_file(const char *level, const char *tag, const char *msg) {
-    // 1. In libmain-Log schreiben (immer)
-    if (log_file == NULL) {
-        init_log_files();
-    }
-    if (log_file != NULL) {
-        time_t now = time(NULL);
-        char timestamp[64];
-        strftime(timestamp, sizeof(timestamp), "%H:%M:%S", localtime(&now));
-        fprintf(log_file, "[%s] [%s] [%s] %s\n", timestamp, level, tag, msg);
-        fflush(log_file);
-    }
-}
-
-// ─── NUR IN PYTHON-LOG SCHREIBEN ★ ★ ★
-static void log_to_python_file(const char *msg) {
-    if (python_log_file == NULL) {
-        init_log_files();
-    }
-    if (python_log_file != NULL) {
-        time_t now = time(NULL);
-        char timestamp[64];
-        strftime(timestamp, sizeof(timestamp), "%H:%M:%S", localtime(&now));
-        fprintf(python_log_file, "[%s] %s\n", timestamp, msg);
-        fflush(python_log_file);
-    }
-}
-
-// ─── PYTHON-LOG FÜR androidembed ★ ★ ★
-static void log_python_output(const char *msg) {
-    // Zuerst in Logcat
-    __android_log_print(ANDROID_LOG_INFO, "python", "%s", msg);
-    // Dann in Python-Log-Datei
-    log_to_python_file(msg);
+    init_log_file();
+    if (log_file == NULL) return;
+    time_t now = time(NULL);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "%H:%M:%S", localtime(&now));
+    fprintf(log_file, "[%s] [%s] [%s] %s\n", timestamp, level, tag, msg);
+    fflush(log_file);
 }
 
 // ============================================================
@@ -178,7 +117,7 @@ static void LOG_TIMESTAMP(const char *msg) {
 }
 
 // ============================================================
-// ★ ★ ★ ANDROIDEMBED LOG MODUL (NUR PYTHON) ★ ★ ★
+// ★ ★ ★ ANDROIDEMBED LOG MODUL ★ ★ ★
 // ============================================================
 static PyObject *androidembed_log(PyObject *self, PyObject *args) {
     char *logstr = NULL;
@@ -187,8 +126,8 @@ static PyObject *androidembed_log(PyObject *self, PyObject *args) {
     }
     const char *name = getenv("PYTHON_NAME");
     if (name == NULL) name = "python";
-    // ★ ★ ★ PYTHON-LOG in SEPARATE DATEI ★ ★ ★
-    log_python_output(logstr);
+    __android_log_print(ANDROID_LOG_INFO, name, "%s", logstr);
+    log_to_file("PYTHON", name, logstr);
     Py_RETURN_NONE;
 }
 
@@ -347,30 +286,39 @@ char *setup_symlinks() {
 // ============================================================
 static void reset_python() {
     LOGP("🔄 Python wird zurückgesetzt...");
+    
+    // 1. Prüfen ob Python läuft
     if (Py_IsInitialized()) {
         LOGP("⚠️ Python läuft noch – wird finalisiert...");
+        
+        // 2. Python finalisieren
         Py_Finalize();
         LOGP("✅ Python finalisiert");
-        usleep(100000);
+        
+        // 3. Kurz warten (damit alles aufgeräumt wird)
+        usleep(100000); // 100ms warten
     } else {
         LOGP("ℹ️ Python läuft nicht – kein Reset nötig");
     }
+    
     LOGP("✅ Python bereit für Neustart");
 }
-
 // ============================================================
 // ★ ★ ★ MAIN ★ ★ ★
 // ============================================================
 int main(int argc, char *argv[]) {
+    
     LOGP("🚀 Python wird (neu) gestartet...");
+    
+    // 1. Reset
     reset_python();
     
-    // ★ ★ ★ BEIDE LOGS INITIALISIEREN ★ ★ ★
-    init_log_files();
+    init_log_file();
     
     LOG_TIMESTAMP("🚀 START: main() - Python for Android initializing");
     LOG_TO_FILE("start.c", "🐍 Starting Python initialization");
 
+    // ★ ★ ★ ALLE UMWELTVARIABLEN LOGGEN ★ ★ ★
     LOGP("🔍 ENV: ANDROID_UNPACK = %s", getenv("ANDROID_UNPACK"));
     LOGP("🔍 ENV: ANDROID_APP_PATH = %s", getenv("ANDROID_APP_PATH"));
     LOGP("🔍 ENV: PYTHONHOME = %s", getenv("PYTHONHOME"));
@@ -391,7 +339,7 @@ int main(int argc, char *argv[]) {
     if (env_argument == NULL) {
         LOGE("❌ ANDROID_ARGUMENT is NULL!");
         LOG_TO_FILE("start.c", "❌ ANDROID_ARGUMENT is NULL");
-        close_log_files();
+        close_log_file();
         return -1;
     }
     setenv("ANDROID_APP_PATH", env_argument, 1);
@@ -407,7 +355,8 @@ int main(int argc, char *argv[]) {
 
     LOGP("Setting additional env vars from p4a_env_vars.txt");
     char env_file_path[256];
-    snprintf(env_file_path, sizeof(env_file_path), "%s/p4a_env_vars.txt", getenv("ANDROID_UNPACK"));
+    snprintf(env_file_path, sizeof(env_file_path),
+             "%s/p4a_env_vars.txt", getenv("ANDROID_UNPACK"));
     FILE *env_file_fd = fopen(env_file_path, "r");
     if (env_file_fd) {
         LOG_TO_FILE("start.c", "✅ p4a_env_vars.txt found");
@@ -465,7 +414,8 @@ int main(int argc, char *argv[]) {
     LOG_TO_FILE("start.c", "📁 Preparing Python init");
 
     char python_bundle_dir[256];
-    snprintf(python_bundle_dir, 256, "%s/_python_bundle", getenv("ANDROID_UNPACK"));
+    snprintf(python_bundle_dir, 256,
+             "%s/_python_bundle", getenv("ANDROID_UNPACK"));
     LOGP("🔍 python_bundle_dir = %s", python_bundle_dir);
     LOG_TO_FILE("start.c", "🔍 python_bundle_dir");
 
@@ -586,7 +536,7 @@ int main(int argc, char *argv[]) {
     PyRun_SimpleString("import site; print site.getsitepackages()\n");
 #endif
 
-    // ★ ★ ★ ENTRYPOINT PRÜFUNG ★ ★ ★
+    // ★ ★ ★ ENTRYPOINT PRÜFUNG MIT LOGS ★ ★ ★
     LOGP("🔍 ENTRYPOINT: %s", env_entrypoint);
     LOG_TO_FILE("start.c", "🔍 ENTRYPOINT value");
 
@@ -595,13 +545,13 @@ int main(int argc, char *argv[]) {
     if (dot <= 0) {
         LOGE("❌ Invalid entrypoint, abort.");
         LOG_TO_FILE("start.c", "❌ Invalid entrypoint, abort.");
-        close_log_files();
+        close_log_file();
         return -1;
     }
     if (strlen(env_entrypoint) > ENTRYPOINT_MAXLEN - 2) {
         LOGE("❌ Entrypoint path is too long, try increasing ENTRYPOINT_MAXLEN.");
         LOG_TO_FILE("start.c", "❌ Entrypoint path too long");
-        close_log_files();
+        close_log_file();
         return -1;
     }
     if (!strcmp(dot, ext)) {
@@ -612,7 +562,7 @@ int main(int argc, char *argv[]) {
             if (!file_exists(entrypoint)) {
                 LOGE("❌ Entrypoint not found (.pyc, fallback on .py), abort");
                 LOG_TO_FILE("start.c", "❌ Entrypoint not found");
-                close_log_files();
+                close_log_file();
                 return -1;
             }
         } else {
@@ -627,7 +577,7 @@ int main(int argc, char *argv[]) {
             if (!file_exists(env_entrypoint)) {
                 LOGE("❌ Entrypoint not found (.py), abort.");
                 LOG_TO_FILE("start.c", "❌ Entrypoint not found (.py)");
-                close_log_files();
+                close_log_file();
                 return -1;
             }
             strcpy(entrypoint, env_entrypoint);
@@ -638,7 +588,7 @@ int main(int argc, char *argv[]) {
     } else {
         LOGE("❌ Entrypoint have an invalid extension (must be .py or .pyc), abort.");
         LOG_TO_FILE("start.c", "❌ Invalid entrypoint extension");
-        close_log_files();
+        close_log_file();
         return -1;
     }
 
@@ -649,15 +599,25 @@ int main(int argc, char *argv[]) {
     if (fd == NULL) {
         LOGE("❌ Open the entrypoint failed: %s", entrypoint);
         LOG_TO_FILE("start.c", "❌ Open entrypoint failed");
-        close_log_files();
+        close_log_file();
         return -1;
     }
 
     LOGP("✅ Running Python script: %s", entrypoint);
     LOG_TO_FILE("start.c", "✅ Running Python script");
 
-    // ★ ★ ★ PYTHON SCRIPT AUSFÜHREN ★ ★ ★
-    ret = PyRun_SimpleFile(fd, entrypoint);
+    //start python mit entrypoint (main pyc)
+    ret = PyRun_SimpleFile(fd, entrypoint );
+    
+    //start python mit entrypoint (main pyc)
+    /*
+    ret = PyRun_SimpleString(
+    "import sys\n"
+    "import subprocess\n"
+    "subprocess.check_call([sys.executable, '-m', 'pip', 'list'])\n"
+);
+    LOGP("📌 Return PyRun_SimpleString: %d", ret);
+    */
     fclose(fd);
 
     if (PyErr_Occurred() != NULL) {
@@ -680,7 +640,7 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    close_log_files();
+    close_log_file();
     exit(ret);
     return ret;
 }

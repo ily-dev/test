@@ -308,9 +308,12 @@ fun changeSession(mainActivityActivity: MainActivity, session_id: String) {
             keepScreenOn = true
             requestFocus()
             isFocusableInTouchMode = true
+            
+            // ★ ★ ★ FARBE AKTUALISIEREN ★ ★ ★
+            val color = getViewColor()  // ← Hier wird die Farbe geholt
             mEmulator?.mColors?.mCurrentColors?.apply {
-                set(256, typedValue.data)
-                set(258, typedValue.data)
+                set(256, color)  // Vordergrund
+                set(258, color)  // Hintergrund
             }
         }
         virtualKeysView.get()?.apply {

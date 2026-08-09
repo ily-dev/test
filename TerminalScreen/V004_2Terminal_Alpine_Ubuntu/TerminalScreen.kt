@@ -16,6 +16,7 @@ import android.widget.EditText
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -116,11 +117,15 @@ import java.util.Properties
 import android.content.Intent
 import com.rk.terminal.ui.screens.terminal.DialogMode
 
+
+import kotlinx.coroutines.delay
+
 // ============================================================
 // ★ VARIABLEN (werden von TerminalLogik verwendet)
 // ============================================================
 var terminalView = WeakReference<TerminalView?>(null)
 var virtualKeysView = WeakReference<VirtualKeysView?>(null)
+var pythonTerminalView = WeakReference<TerminalView?>(null)  // ★ ★ ★ NEU ★ ★ ★
 
 var darkText = mutableStateOf(Settings.blackTextColor)
 var bitmap = mutableStateOf<ImageBitmap?>(null)
@@ -139,18 +144,40 @@ var showHorizontalToolbar = mutableStateOf(Settings.toolbar)
 var wallAlpha by mutableFloatStateOf(Settings.wallTransparency)
 
 
+
+// ★ ★ ★ LIVE-LOGS AUS python_sdl2.log LESEN ★ ★ ★
+fun updatePythonLogs() {
+    val logFile = File("/sdcard/python_sdl2.log")
+    if (!logFile.exists()) {
+        pythonTerminalView.get()?.currentSession?.write("⚠️ python_sdl2.log nicht gefunden\n")
+        return
+    }
+    
+    try {
+        // Letzte 30 Zeilen lesen
+        val logs = logFile.readLines()
+        val lastLines = logs.takeLast(30)
+        val session = pythonTerminalView.get()?.currentSession
+        
+        // ★ ★ ★ TERMINAL LEEREN UND NEUE LOGS ANZEIGEN ★ ★ ★
+        session?.write("\u001b[2J\u001b[H")  // Clear Screen
+        session?.write("🐍 Python Live-Logs (python_sdl2.log)\n")
+        session?.write("========================================\n")
+        lastLines.forEach { line ->
+            session?.write("$line\n")
+        }
+        session?.write("========================================\n")
+        session?.write("📡 Aktualisiert: ${java.text.SimpleDateFormat("HH:mm:ss").format(java.util.Date())}\n")
+        
+    } catch (e: Exception) {
+        pythonTerminalView.get()?.currentSession?.write("❌ Fehler: ${e.message}\n")
+    }
+}
+
+
 /**
  * Hilfsfunktion zum Starten einer Python-Activity (Kivy oder Qt)
- * @param context Der Context der aktuellen Activity
- * @param targetClass Der Ziel-Klassentyp (z.B. PythonActivity::class.java oder PythonQActivity::class.java)
- * @param entrypoint Der Entrypoint (z.B. "main.pyc" oder "main2.pyc")
- * @param appRootSubDir Das Unterverzeichnis für die App (z.B. "sdl2" oder "qt")
  */
- 
- // ============================================================
-// ★ start Python or ReTerminal
-// ============================================================
- 
 private fun startPythonActivity(
     context: Context,
     targetClass: Class<*>,
@@ -158,10 +185,8 @@ private fun startPythonActivity(
     appRootSubDir: String
 ) {
     try {
-        // 1. Intent für die Ziel-Activity erstellen
         val intent = Intent(context, targetClass)
         
-        // 2. Environment-Variablen (als Extras) setzen
         val appRoot = "${context.filesDir.absolutePath}/$appRootSubDir"
         val mFilesDir = context.filesDir.absolutePath
         
@@ -176,11 +201,9 @@ private fun startPythonActivity(
         intent.putExtra("PYTHONPATH", "$appRoot:$appRoot/lib")
         intent.putExtra("PYTHONOPTIMIZE", "2")
         
-        // 3. Qt-spezifische Environment-Variablen (optional, schadet auch bei Kivy nicht)
         intent.putExtra("QT_QPA_PLATFORM", "android")
         intent.putExtra("QT_ANDROID_APP", "true")
         
-        // 4. Flags setzen und Activity starten
         intent.flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
         context.startActivity(intent)
         
@@ -372,6 +395,18 @@ fun TerminalScreen(
         Globals.showLog("TerminalScreen", "📌 Init: ${Globals.INIT_SCRIPT}")
         Globals.showLog("TerminalScreen", "📌 WorkingDir: ${Rootfs.getWorkingDir()}")
     }
+    
+    // TerminalScreen.kt - in der Composable
+
+    // ★ ★ ★ LIVE-LOGS ALLE 1 SEKUNDEN AKTUALISIEREN ★ ★ ★
+    /*
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000) // 1 Sekunde
+            updatePythonLogs()
+        }
+    }
+    */
 
     // ★ DOWNLOADER STARTEN
     LaunchedEffect(Unit) {
@@ -563,6 +598,8 @@ fun TerminalScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     BackgroundImage()
                     val color = getComposeColor()
+                    
+                    // ★ ★ ★ HAUPT-COLUMN MIT SPLIT-VIEW ★ ★ ★
                     Column {
                         // ★ TOPAPPBAR
                         if (showToolbar.value && (LocalConfiguration.current.orientation != Configuration.ORIENTATION_LANDSCAPE || showHorizontalToolbar.value)){
@@ -598,45 +635,36 @@ fun TerminalScreen(
                                     }
                                 },
                                 actions = {
-                                    // TerminalScreen.kt
-
-if (Globals.DEBUG) {
-    
-    IconButton(
-    onClick = {
-            // ★ Aufruf für Qt (main2.pyc im "qt" Unterordner)
-            startPythonActivity(
-                context = context,
-                targetClass = Class.forName("org.kivy.android.PythonQActivity"),
-                entrypoint = "main2.pyc",
-                appRootSubDir = "qt"
-            )
-    }
-    
-    ) {
-        Text(
-            text = " 🚆  ",
-            fontSize = 24.sp,
-            color = color
-        )
-    }
-}                            
+                                    if (Globals.DEBUG) {
+                                        IconButton(
+                                            onClick = {
+                                                startPythonActivity(
+                                                    context = context,
+                                                    targetClass = Class.forName("org.kivy.android.PythonQActivity"),
+                                                    entrypoint = "main2.pyc",
+                                                    appRootSubDir = "qt"
+                                                )
+                                            }
+                                        ) {
+                                            Text(
+                                                text = " 🚆  ",
+                                                fontSize = 24.sp,
+                                                color = color
+                                            )
+                                        }
+                                    }
                                     
                                     if (Rootfs.isDownloaded.value) {
                                         // Python-Button
                                         IconButton(
                                             onClick = {
-                                            // ★ Aufruf für Kivy (main.pyc im "sdl2" Unterordner)
-            startPythonActivity(
-                context = context,
-                targetClass = Class.forName("org.kivy.android.PythonActivity"),
-                entrypoint = "main.pyc",
-                appRootSubDir = "sdl2"
-            )
-                                            
-        
-    }
-                                            
+                                                startPythonActivity(
+                                                    context = context,
+                                                    targetClass = Class.forName("org.kivy.android.PythonActivity"),
+                                                    entrypoint = "main.pyc",
+                                                    appRootSubDir = "sdl2"
+                                                )
+                                            }
                                         ) {
                                             Text(
                                                 text = "🤖",
@@ -659,234 +687,214 @@ if (Globals.DEBUG) {
                         }
 
                         val density = LocalDensity.current
-                        Column(modifier = Modifier.imePadding().navigationBarsPadding().padding(top = if (showToolbar.value){0.dp}else{
-                            with(density){
-                                TopAppBarDefaults.windowInsets.getTop(density).toDp()
-                            }
-                        })) {
-
-                            // ★ ENTWEDER DOWNLOADER ODER TERMINAL
-                            if (Rootfs.isDownloaded.value) {
+                        
+                        // ★ ★ ★ SPLIT-VIEW: 70% SHELL + 30% PYTHON OUTPUT ★ ★ ★
+                        Column(
+                            modifier = Modifier
+                                .imePadding()
+                                .navigationBarsPadding()
+                                .padding(top = if (showToolbar.value){0.dp}else{
+                                    with(density){
+                                        TopAppBarDefaults.windowInsets.getTop(density).toDp()
+                                    }
+                                })
+                                .weight(1f)
+                        ) {
+                            // ★ ★ ★ 1. HAUPT-TERMINAL (70%) ★ ★ ★
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(7f)
+                            ) {
                                 // TERMINAL ANSICHT
-                                AndroidView(
-                                    factory = { context ->
-                                        TerminalView(context, null).apply {
-                                            terminalView = WeakReference(this)
-                                            setTextSize(
-                                                dpToPx(
-                                                    Settings.terminal_font_size.toFloat(),
-                                                    context
-                                                )
-                                            )
-                                            val client = TerminalBackEnd(this, mainActivityActivity)
-
-                                            val session = if (pendingCommand != null) {
-                                                mainActivityActivity.sessionBinder!!.getService().currentSession.value = Pair(
-                                                    pendingCommand!!.id, pendingCommand!!.workingMode)
-                                                mainActivityActivity.sessionBinder!!.getSession(
-                                                    pendingCommand!!.id
-                                                )
-                                                    ?: mainActivityActivity.sessionBinder!!.createSession(
-                                                        pendingCommand!!.id,
-                                                        client,
-                                                        mainActivityActivity, workingMode = Settings.working_Mode
+                                if (Rootfs.isDownloaded.value) {
+                                    AndroidView(
+                                        factory = { context ->
+                                            TerminalView(context, null).apply {
+                                                terminalView = WeakReference(this)
+                                                setTextSize(
+                                                    dpToPx(
+                                                        Settings.terminal_font_size.toFloat(),
+                                                        context
                                                     )
-                                            } else {
-                                                mainActivityActivity.sessionBinder!!.getSession(
-                                                    mainActivityActivity.sessionBinder!!.getService().currentSession.value.first
                                                 )
-                                                    ?: mainActivityActivity.sessionBinder!!.createSession(
-                                                        mainActivityActivity.sessionBinder!!.getService().currentSession.value.first,
-                                                        client,
-                                                        mainActivityActivity,workingMode = Settings.working_Mode
+                                                val client = TerminalBackEnd(this, mainActivityActivity)
+
+                                                val session = if (pendingCommand != null) {
+                                                    mainActivityActivity.sessionBinder!!.getService().currentSession.value = Pair(
+                                                        pendingCommand!!.id, pendingCommand!!.workingMode)
+                                                    mainActivityActivity.sessionBinder!!.getSession(
+                                                        pendingCommand!!.id
                                                     )
-                                            }
-
-                                            session.updateTerminalSessionClient(client)
-                                            attachSession(session)
-                                            setTerminalViewClient(client)
-                                            setTypeface(font)
-
-                                            post {
-                                                val color = getViewColor()
-                                                keepScreenOn = true
-                                                requestFocus()
-                                                isFocusableInTouchMode = true
-
-                                                mEmulator?.mColors?.mCurrentColors?.apply {
-                                                    set(256, color)
-                                                    set(258, color)
+                                                        ?: mainActivityActivity.sessionBinder!!.createSession(
+                                                            pendingCommand!!.id,
+                                                            client,
+                                                            mainActivityActivity, workingMode = Settings.working_Mode
+                                                        )
+                                                } else {
+                                                    mainActivityActivity.sessionBinder!!.getSession(
+                                                        mainActivityActivity.sessionBinder!!.getService().currentSession.value.first
+                                                    )
+                                                        ?: mainActivityActivity.sessionBinder!!.createSession(
+                                                            mainActivityActivity.sessionBinder!!.getService().currentSession.value.first,
+                                                            client,
+                                                            mainActivityActivity,workingMode = Settings.working_Mode
+                                                        )
                                                 }
 
-                                                val colorsFile = localDir().child("colors.properties")
-                                                if (colorsFile.exists() && colorsFile.isFile){
-                                                    val props = Properties()
-                                                    FileInputStream(colorsFile).use { input ->
-                                                        props.load(input)
+                                                session.updateTerminalSessionClient(client)
+                                                attachSession(session)
+                                                setTerminalViewClient(client)
+                                                setTypeface(font)
+
+                                                post {
+                                                    val color = getViewColor()
+                                                    keepScreenOn = true
+                                                    requestFocus()
+                                                    isFocusableInTouchMode = true
+
+                                                    mEmulator?.mColors?.mCurrentColors?.apply {
+                                                        set(256, color)
+                                                        set(258, color)
                                                     }
-                                                    TerminalColors.COLOR_SCHEME.updateWith(props)
+
+                                                    val colorsFile = localDir().child("colors.properties")
+                                                    if (colorsFile.exists() && colorsFile.isFile){
+                                                        val props = Properties()
+                                                        FileInputStream(colorsFile).use { input ->
+                                                            props.load(input)
+                                                        }
+                                                        TerminalColors.COLOR_SCHEME.updateWith(props)
+                                                    }
                                                 }
                                             }
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f),
-                                    update = { terminalView ->
-                                        terminalView.onScreenUpdated()
-                                        val color = getViewColor()
-                                        terminalView.mEmulator?.mColors?.mCurrentColors?.apply {
-                                            set(256, color)
-                                            set(258, color)
-                                        }
-                                    },
-                                )
-
-                                // VIRTUALKEYS
-                                if (showVirtualKeys.value){
-                                    val pagerState = rememberPagerState(pageCount = { 2 })
-                                    val onSurfaceColor = MaterialTheme.colorScheme.onSurface.toArgb()
-                                    HorizontalPager(
-                                        state = pagerState,
+                                        },
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(75.dp)
-                                    ) { page ->
-                                        when (page) {
-                                            0 -> {
-                                                terminalView.get()?.requestFocus()
-                                                AndroidView(
-                                                    factory = { context ->
-                                                        VirtualKeysView(context, null).apply {
-                                                            virtualKeysView = WeakReference(this)
-                                                            virtualKeysViewClient =
-                                                                terminalView.get()?.mTermSession?.let {
-                                                                    VirtualKeysListener(it)
-                                                                }
-                                                            buttonTextColor = onSurfaceColor!!
-                                                            reload(
-                                                                VirtualKeysInfo(
-                                                                    VIRTUAL_KEYS,
-                                                                    "",
-                                                                    VirtualKeysConstants.CONTROL_CHARS_ALIASES
-                                                                )
-                                                            )
-                                                        }
-                                                    },
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .height(75.dp)
-                                                )
+                                            .weight(1f),
+                                        update = { terminalView ->
+                                            terminalView.onScreenUpdated()
+                                            val color = getViewColor()
+                                            terminalView.mEmulator?.mColors?.mCurrentColors?.apply {
+                                                set(256, color)
+                                                set(258, color)
                                             }
-                                            1 -> {
-                                                var text by rememberSaveable { mutableStateOf("") }
-                                                AndroidView(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .height(75.dp),
-                                                    factory = { ctx ->
-                                                        EditText(ctx).apply {
-                                                            maxLines = 1
-                                                            isSingleLine = true
-                                                            imeOptions = EditorInfo.IME_ACTION_DONE
-                                                            doOnTextChanged { textInput, _, _, _ ->
-                                                                text = textInput.toString()
-                                                            }
-                                                            setOnEditorActionListener { v, actionId, event ->
-                                                                if (actionId == EditorInfo.IME_ACTION_DONE) {
-                                                                    if (text.isEmpty()) {
-                                                                        val eventDown = KeyEvent(
-                                                                            KeyEvent.ACTION_DOWN,
-                                                                            KeyEvent.KEYCODE_ENTER
-                                                                        )
-                                                                        val eventUp = KeyEvent(
-                                                                            KeyEvent.ACTION_UP,
-                                                                            KeyEvent.KEYCODE_ENTER
-                                                                        )
-                                                                        terminalView.get()
-                                                                            ?.dispatchKeyEvent(eventDown)
-                                                                        terminalView.get()
-                                                                            ?.dispatchKeyEvent(eventUp)
-                                                                    } else {
-                                                                        terminalView.get()?.currentSession?.write(
-                                                                            text
-                                                                        )
-                                                                        setText("")
-                                                                    }
-                                                                    true
-                                                                } else {
-                                                                    false
-                                                                }
-                                                            }
-                                                        }
-                                                    },
-                                                    update = { editText ->
-                                                        if (editText.text.toString() != text) {
-                                                            editText.setText(text)
-                                                            editText.setSelection(text.length)
-                                                        }
-                                                    }
-                                                )
-                                            }
+                                        },
+                                    )
+                                } else {
+                                    // DOWNLOADER ANSICHT
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                            .padding(24.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(80.dp),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            strokeWidth = 6.dp
+                                        )
+
+                                        Spacer(modifier = Modifier.height(24.dp))
+
+                                        Text(
+                                            text = progressText,
+                                            color = color,
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            textAlign = TextAlign.Center
+                                        )
+
+                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                        LinearProgressIndicator(
+                                            progress = progress,
+                                            modifier = Modifier
+                                                .fillMaxWidth(0.6f)
+                                                .height(8.dp),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        Text(
+                                            text = "${(progress * 100).toInt()}%",
+                                            color = color.copy(alpha = 0.6f),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+
+                                        if (errorMessage != null) {
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            Text(
+                                                text = "❌ $errorMessage",
+                                                color = MaterialTheme.colorScheme.error,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                textAlign = TextAlign.Center
+                                            )
                                         }
                                     }
-                                } else {
-                                    virtualKeysView = WeakReference(null)
                                 }
-                            } else {
-                                // DOWNLOADER ANSICHT
-                                Column(
+                            }
+
+                            // ★ ★ ★ DIVIDER (Trennlinie) ★ ★ ★
+                            Divider(
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                                thickness = 2.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            // ★ ★ ★ 2. PYTHON-AUSGABE (30%) ★ ★ ★
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(3f)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
+                            ) {
+                                // ★ ★ ★ KOPFZEILE ★ ★ ★
+                                Text(
+                                    text = "🐍 Python Output",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                    fontSize = 12.sp
+                                )
+                                
+                                // ★ ★ ★ PYTHON TERMINAL VIEW ★ ★ ★
+                                AndroidView(
+                                    factory = { ctx ->
+                                        TerminalView(ctx, null).apply {
+                                            pythonTerminalView = WeakReference(this)
+                                            setTextSize(dpToPx(12f, ctx))
+                                            
+                                            // ★ ★ ★ ECHO DEAKTIVIEREN (TerminalView read-only) ★ ★ ★
+                                            isFocusable = true
+                                            isFocusableInTouchMode = true
+                                            isEnabled = true
+                                            
+                                            // ★ ★ ★ PYTHON SESSION ERSTELLEN ★ ★ ★
+                                            val pythonClient = TerminalBackEnd(this, mainActivityActivity)
+                                            val pythonSession = PythonSession.createPythonSession(
+                                                activity = mainActivityActivity,
+                                                sessionClient = pythonClient,
+                                                session_id = "python_log"
+                                            )
+                                            
+                                            pythonSession.updateTerminalSessionClient(pythonClient)
+                                            attachSession(pythonSession)
+                                            setTerminalViewClient(pythonClient)
+                                            setTypeface(font)
+                                            
+                                            // ★ ★ ★ TESTAUSGABE ★ ★ ★
+                                            pythonSession.write("🐍 Python-Output bereit\n")
+                                        }
+                                    },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .weight(1f)
-                                        .padding(24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(80.dp),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        strokeWidth = 6.dp
-                                    )
-
-                                    Spacer(modifier = Modifier.height(24.dp))
-
-                                    Text(
-                                        text = progressText,
-                                        color = color,
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        textAlign = TextAlign.Center
-                                    )
-
-                                    Spacer(modifier = Modifier.height(16.dp))
-
-                                    LinearProgressIndicator(
-                                        progress = progress,
-                                        modifier = Modifier
-                                            .fillMaxWidth(0.6f)
-                                            .height(8.dp),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                                    )
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    Text(
-                                        text = "${(progress * 100).toInt()}%",
-                                        color = color.copy(alpha = 0.6f),
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-
-                                    if (errorMessage != null) {
-                                        Spacer(modifier = Modifier.height(16.dp))
-                                        Text(
-                                            text = "❌ $errorMessage",
-                                            color = MaterialTheme.colorScheme.error,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                }
+                                )
                             }
                         }
                     }
@@ -894,4 +902,18 @@ if (Globals.DEBUG) {
             }
         )
     }
+}
+
+// ★ ★ ★ DIVIDER-KOMPONENTE ★ ★ ★
+@Composable
+fun Divider(
+    color: androidx.compose.ui.graphics.Color,
+    thickness: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier
+            .height(thickness)
+            .background(color)
+    )
 }

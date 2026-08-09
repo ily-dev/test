@@ -143,7 +143,8 @@ var wallAlpha by mutableFloatStateOf(Settings.wallTransparency)
 // ============================================================
 inline fun getViewColor(): Int{
     return if (darkText.value){
-        Color.BLACK
+        Color.YELLOW
+        //Color.BLACK
     }else{
         Color.WHITE
     }
@@ -238,6 +239,8 @@ fun SelectableCard(
 // ============================================================
 // ★ SESSION LOGIK
 // ============================================================
+// TerminalScreen.kt
+
 fun changeSession(mainActivityActivity: MainActivity, session_id: String) {
     terminalView.get()?.apply {
         val client = TerminalBackEnd(this, mainActivityActivity)
@@ -261,9 +264,12 @@ fun changeSession(mainActivityActivity: MainActivity, session_id: String) {
             keepScreenOn = true
             requestFocus()
             isFocusableInTouchMode = true
+            
+            // ★ ★ ★ FARBE AKTUALISIEREN ★ ★ ★
+            val color = getViewColor()  // ← Hier wird die Farbe geholt
             mEmulator?.mColors?.mCurrentColors?.apply {
-                set(256, typedValue.data)
-                set(258, typedValue.data)
+                set(256, color)  // Vordergrund
+                set(258, color)  // Hintergrund
             }
         }
         virtualKeysView.get()?.apply {
@@ -273,7 +279,6 @@ fun changeSession(mainActivityActivity: MainActivity, session_id: String) {
     }
     mainActivityActivity.sessionBinder!!.getService().currentSession.value = Pair(session_id,mainActivityActivity.sessionBinder!!.getService().sessionList[session_id]!!)
 }
-
 // ============================================================
 // ★ CONSTANTS
 // ============================================================
