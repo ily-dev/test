@@ -388,8 +388,8 @@ fun TerminalScreen(
     // ★ DIALOG-STATE
     var showAddDialog by remember { mutableStateOf(false) }
     
-    // TerminalScreen.kt - in der Composable
-    var showPythonLog by remember { mutableStateOf(false) }  // ← Standard: sichtbar
+    // ★ ★ ★ STATE FÜR PYTHON-LOG SICHTBARKEIT ★ ★ ★
+    var showPythonLog by remember { mutableStateOf(true) }  // ← Standard: sichtbar
 
     // ★ ★ ★ Globals für Debug ★ ★ ★
     if (Globals.DEBUG) {
@@ -399,17 +399,13 @@ fun TerminalScreen(
         Globals.showLog("TerminalScreen", "📌 WorkingDir: ${Rootfs.getWorkingDir()}")
     }
     
-    // TerminalScreen.kt - in der Composable
-
     // ★ ★ ★ LIVE-LOGS ALLE 1 SEKUNDEN AKTUALISIEREN ★ ★ ★
-    /*
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000) // 1 Sekunde
             updatePythonLogs()
         }
     }
-    */
 
     // ★ DOWNLOADER STARTEN
     LaunchedEffect(Unit) {
@@ -638,6 +634,20 @@ fun TerminalScreen(
                                     }
                                 },
                                 actions = {
+                                    // ★ ★ ★ TOGGLE BUTTON FÜR PYTHON-LOG ★ ★ ★
+                                    IconButton(
+                                        onClick = {
+                                            showPythonLog = !showPythonLog
+                                            Globals.showLog("TerminalScreen", "🐍 Python-Log: ${if (showPythonLog) "ON" else "OFF"}")
+                                        }
+                                    ) {
+                                        Text(
+                                            text = if (showPythonLog) "📕" else "📗",
+                                            fontSize = 24.sp,
+                                            color = color
+                                        )
+                                    }
+                                    
                                     if (Globals.DEBUG) {
                                         IconButton(
                                             onClick = {
@@ -849,63 +859,74 @@ fun TerminalScreen(
                             )
 
                             // ★ ★ ★ 2. PYTHON-AUSGABE (30%) ★ ★ ★
-                            // ★ ★ ★ PYTHON-AUSGABE (30%) ★ ★ ★
-                            if (showPythonLog.value) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    //rausnehmen wert von 3f auf 0f
-                                    .weight(3f)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
-                            ) {
-                                // ★ ★ ★ KOPFZEILE ★ ★ ★
-                                Text(
-                                    text = "🐍 Python Output",
+                            if (showPythonLog) {
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                                    fontSize = 12.sp
-                                )
-                                
-                                // ★ ★ ★ PYTHON TERMINAL VIEW ★ ★ ★
-                                AndroidView(
-                                    factory = { ctx ->
-                                        TerminalView(ctx, null).apply {
-                                            pythonTerminalView = WeakReference(this)
-                                            setTextSize(dpToPx(12f, ctx))
-                                            
-                                            // ★ ★ ★ ECHO DEAKTIVIEREN (TerminalView read-only) ★ ★ ★
-                                            isFocusable = true
-                                            isFocusableInTouchMode = true
-                                            isEnabled = true
-                                            
-                                            // ★ ★ ★ PYTHON SESSION ERSTELLEN ★ ★ ★
-                                            val pythonClient = TerminalBackEnd(this, mainActivityActivity)
-                                            val pythonSession = PythonSession.createPythonSession(
-                                                activity = mainActivityActivity,
-                                                sessionClient = pythonClient,
-                                                session_id = "python_log"
-                                            )
-                                            
-                                            pythonSession.updateTerminalSessionClient(pythonClient)
-                                            attachSession(pythonSession)
-                                            setTerminalViewClient(pythonClient)
-                                            setTypeface(font)
-                                            
-                                            // ★ ★ ★ TESTAUSGABE ★ ★ ★
-                                            pythonSession.write("🐍 Python-Output bereit\n")
-                                        }
-                                    },
+                                        .weight(3f)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
+                                ) {
+                                    // ★ ★ ★ KOPFZEILE ★ ★ ★
+                                    Text(
+                                        text = "🐍 Python Output",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                        fontSize = 12.sp
+                                    )
+                                    
+                                    // ★ ★ ★ PYTHON TERMINAL VIEW ★ ★ ★
+                                    AndroidView(
+                                        factory = { ctx ->
+                                            TerminalView(ctx, null).apply {
+                                                pythonTerminalView = WeakReference(this)
+                                                setTextSize(dpToPx(12f, ctx))
+                                                
+                                                // ★ ★ ★ ECHO DEAKTIVIEREN (TerminalView read-only) ★ ★ ★
+                                                isFocusable = true
+                                                isFocusableInTouchMode = true
+                                                isEnabled = true
+                                                
+                                                // ★ ★ ★ PYTHON SESSION ERSTELLEN ★ ★ ★
+                                                val pythonClient = TerminalBackEnd(this, mainActivityActivity)
+                                                val pythonSession = PythonSession.createPythonSession(
+                                                    activity = mainActivityActivity,
+                                                    sessionClient = pythonClient,
+                                                    session_id = "python_log"
+                                                )
+                                                
+                                                pythonSession.updateTerminalSessionClient(pythonClient)
+                                                attachSession(pythonSession)
+                                                setTerminalViewClient(pythonClient)
+                                                setTypeface(font)
+                                                
+                                                // ★ ★ ★ TESTAUSGABE ★ ★ ★
+                                                pythonSession.write("🐍 Python-Output bereit\n")
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                    )
+                                }
+                            } else {
+                                // ★ ★ ★ ELSE: PYTHON-LOG AUSGESCHALTET ★ ★ ★
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .weight(1f)
-                                )
+                                        .weight(0.5f)  // Minimale Höhe
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.05f))
+                                        .padding(4.dp)
+                                ) {
+                                    Text(
+                                        text = "📗 Python-Log ausgeschaltet (Toggle mit 📕/📗 Button)",
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
-                            
-                        
-                        
-                        
                         }
                     }
                 }
