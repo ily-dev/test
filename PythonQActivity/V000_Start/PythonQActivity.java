@@ -43,6 +43,8 @@ public class PythonQActivity extends Activity {
     private Bundle mMetaData = null;
     private static PythonQActivity instance = null;
     public boolean mHasFocus = true;
+    
+    private File targetDir; // ★ Hier definieren
 
     // ------------------------------------------------------------------------
     // STATISCHE METHODEN & INSTANZEN
@@ -310,7 +312,7 @@ public class PythonQActivity extends Activity {
                     mHandler.post(() -> {
                         int percent = calculateProgress(fileCount, totalBytes);
                         String msg = "Datei " + fileCount + " (" + formatSize(totalBytes) + ")";
-                        updateProgressDialog(percent, msg);
+                        updateProgress(percent, msg);
                     });
                 }
 
@@ -347,7 +349,7 @@ public class PythonQActivity extends Activity {
                         // Fortschritt 50%-100% skalieren
                         int percent = 50 + (calculateProgress(fileCount, totalBytes) / 2);
                         String msg = "PyBundle: " + fileCount + " Dateien";
-                        updateProgressDialog(percent, msg);
+                        updateProgress(percent, msg);
                     });
                 }
 
